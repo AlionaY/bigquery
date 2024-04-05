@@ -1,6 +1,6 @@
 import concurrent.futures
 import os
-
+import pandas as pd
 from google.cloud import bigquery
 
 key_path = ''
@@ -8,54 +8,53 @@ os.environ["GOOGLE_APPLICATION_CREDENTIALS"] = key_path
 project_id = 'testtasks-419216'
 client = bigquery.Client(project=project_id)
 
-
-project = 'bigquery-public-data'
-bucket_name = ''
-dataset_id = 'google_analytics_sample'
-table_id = 'ga_sessions_20170731'
-
-queries = [
-    "SELECT * FROM bigquery-public-data.google_analytics_sample.ga_sessions_20170731 LIMIT 10"
+project_name = 'bigquery-public-data'
+dataset_name = 'google_analytics_sample'
+table_names = [
+    'ga_sessions_20170101',
+    'ga_sessions_20170201',
+    'ga_sessions_20170301',
+    'ga_sessions_20170401',
+    'ga_sessions_20170501',
+    'ga_sessions_20170601',
+    'ga_sessions_20170701',
+    'ga_sessions_20170801'
 ]
 
+query_template = """
+SELECT 
+    *
+FROM 
+    `bigquery-public-data.google_analytics_sample.ga_sessions_{}`
+"""
 
-def retrieve_data():
-    query = "SELECT * FROM bigquery-public-data.google_analytics_sample.ga_sessions_20170731 LIMIT 10"
+time_periods = [
+    '20170101',
+    '20170201',
+    '20170301',
+    '20170401',
+    '20170501',
+    '20170601',
+    '20170701',
+    '20170801'
+]
 
-    query_job = client.query(query)
-    results = query_job.result()
-    [print(row) for row in results]
-
-
-def extract_data():
-    destination_uri = 'gs://{}/{}'.format(bucket_name, 'extracted_stories_data.csv')
-    dataset_ref = bigquery.DatasetReference(project, dataset_id)
-    table_ref = dataset_ref.table(table_id)
-    extract_job = client.extract_table(
-        table_ref,
-        destination_uri,
-        location='US'
-    )
-    extract_job.result()
-    print('exported')
+dataframes = []
 
 
-# def bigquery_to_csv():
-#     df = client.query(queries).to_dataframe()
+def fetch_data_from_table(time_period):
+    query = query_template.format(time_period)
+    df = client.query(query).to_dataframe()
+    return df
+
+
+def fetch_all_data():
+    with concurrent.futures.ThreadPoolExecutor() as executor:
+        futures = [executor.submit(fetch_data_from_table, time_period) for time_period in time_periods]
+        for future in concurrent.futures.as_completed(futures):
+            dataframes.append(future.result())
 
 
 if __name__ == "__main__":
-    retrieve_data()
-    # # Create a ThreadPoolExecutor with 5 worker threads
-    # with concurrent.futures.ThreadPoolExecutor(max_workers=5) as executor:
-    #     # Submit each query to the executor
-    #     future_to_query = {executor.submit(retrieve_data, query): query for query in queries}
-    #     # Retrieve the results as they become available
-    #     for future in concurrent.futures.as_completed(future_to_query):
-    #         queries = future_to_query[future]
-    #         try:
-    #             data = future.result()
-    #             # Process the retrieved data as needed
-    #             print(f"Data for query '{queries}': {data}")
-    #         except Exception as e:
-    #             print(f"Error occurred while retrieving data for query '{queries}': {e}")
+    fetch_all_data()
+    combined_df = pd.concat(dataframes)
