@@ -1,7 +1,7 @@
 **Overview**
 This Python script collects data from BigQuery, performs simple aggregations on the data, and writes the resulting dataframes to a Google Sheet.
 
-**Links**\n
+**Links**
 Google sheet with the resulting dataframes: https://docs.google.com/spreadsheets/d/1I-soTYjydH0Crr8ivoT7haPIdJq44mECzkzTzO_goSA/edit#gid=0
 
 **Files**
