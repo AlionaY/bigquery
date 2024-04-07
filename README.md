@@ -1,7 +1,10 @@
 **Overview**
 
 This Python script collects data from BigQuery, performs simple aggregations on the data, and writes the resulting dataframes to a Google Sheet.
-**Spent time for writing dataframes to the google sheet: 8.7 sec**
+
+**Time spent on getting data from BigQuery (01 Jan - 31 Jan 2017): 42 sec**
+
+**Time spent on writing data to Google sheet (4 dataframes): 7 sec**
 
 **Links**
 
