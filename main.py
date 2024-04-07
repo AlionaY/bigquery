@@ -1,4 +1,3 @@
-import ast
 import concurrent.futures
 import time
 from concurrent.futures import ThreadPoolExecutor
@@ -8,25 +7,29 @@ import pandas as pd
 
 from auth import authenticate_google_sheets, authenticate_bigquery
 
-time_periods = []
-dataframes = []
-
 
 def fetch_data_from_bigquery():
-    bigquery_client = authenticate_bigquery()
+    dataframes = []
 
-    generate_time_periods()
+    time_periods = generate_time_periods()
+    start_time = time.time()
+
     with ThreadPoolExecutor() as executor:
         futures = [
-            executor.submit(get_dataframe_from_table, bigquery_client, time_period) for time_period in time_periods
+            executor.submit(get_dataframe_from_table, time_period) for time_period in time_periods
         ]
         for future in concurrent.futures.as_completed(futures):
             dataframes.append(future.result())
 
+    if concurrent.futures.as_completed(futures):
+        end_time = time.time()
+        print(f'time spent on getting data: {int(end_time - start_time)} sec')
+
     return pd.concat(dataframes)
 
 
-def generate_time_periods(start='20170101', end='20170331'):
+def generate_time_periods(start='20170101', end='20170131'):
+    time_periods = []
     start_date = datetime.strptime(start, '%Y%m%d')
     end_date = datetime.strptime(end, '%Y%m%d')
 
@@ -36,28 +39,29 @@ def generate_time_periods(start='20170101', end='20170331'):
         time_periods.append(formatted_date)
         current_date += timedelta(days=1)
 
+    return time_periods
 
-def get_dataframe_from_table(bigquery_client, time_period):
+
+def get_dataframe_from_table(time_period):
+    bigquery_client = authenticate_bigquery()
+
     with open('query.sql', 'r') as file:
         query = file.read()
     query_with_date = query.format(time_period)
     return bigquery_client.query(query_with_date).to_dataframe()
 
 
-def convert_col_type_to_dict(cols, df):
-    for col in cols:
-        df[col] = df[col].apply(ast.literal_eval)
-
-
-def write_to_google_sheet():
-    df_list = get_df_list()
+def write_to_google_sheet(data):
+    df_list = get_df_list(data)
     num_workers = len(df_list)
     start_time = time.time()
+
     with ThreadPoolExecutor(max_workers=num_workers) as executor:
         futures = [executor.submit(update_sheet, get_worksheet(idx), df) for (idx, df) in enumerate(df_list)]
+
     if concurrent.futures.as_completed(futures):
         end_time = time.time()
-        print(f'spent time for writing data: {end_time - start_time}')
+        print(f'time spent on writing data: {int(end_time - start_time)} sec')
 
 
 def get_df_list(df):
@@ -116,13 +120,12 @@ def get_transactions_by_browser(data):
 
     result = df.groupby(['date', 'browser'])['total_transactions'].sum().reset_index()
     result = result.sort_values(by=['total_transactions'], ascending=[False])
-    print(result.head())
     return result
 
 
 def get_transactions_by_traffic_source(data):
     """
-    Determines traffic sources in terms of transactions for January - March 2017
+    Determines traffic sources in terms of transactions for January 2017
     :param data: a dataframe with general data
     :return: a dataframe
     """
@@ -161,10 +164,7 @@ def main():
     combined_df.rename(columns={'Unnamed: 0': 'index'}, inplace=True)
     combined_df['date'] = combined_df['date'].apply(lambda x: datetime.strptime(str(x), '%Y%m%d').strftime('%Y-%m-%d'))
 
-    dict_cols = ['totals', 'device', 'trafficSource']
-    convert_col_type_to_dict(dict_cols)
-
-    write_to_google_sheet()
+    write_to_google_sheet(combined_df)
 
 
 if __name__ == "__main__":
