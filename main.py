@@ -1,45 +1,25 @@
 import ast
 import concurrent.futures
-import os
 import time
 from concurrent.futures import ThreadPoolExecutor
+from datetime import datetime, timedelta
 
 import pandas as pd
-from google.cloud import bigquery
-from datetime import datetime, timedelta
-import gspread
-from oauth2client.service_account import ServiceAccountCredentials
 
-SHEET_NAME = 'Bigquery tables'
-PROJECT_NAME = 'bigquery-public-data'
-DATASET_NAME = 'google_analytics_sample'
-
-# add path to file
-key_path = ''
-os.environ["GOOGLE_APPLICATION_CREDENTIALS"] = key_path
-project_id = 'testtasks-419216'
-bigquery_client = bigquery.Client(project=project_id)
-
-scope = ['https://spreadsheets.google.com/feeds',
-         'https://www.googleapis.com/auth/drive']
-credentials = ServiceAccountCredentials.from_json_keyfile_name('credentials.json', scope)
-google_client = gspread.authorize(credentials)
-
-query_template = """
-SELECT 
-    *
-FROM 
-    `bigquery-public-data.google_analytics_sample.ga_sessions_{}`
-"""
+from auth import authenticate_google_sheets, authenticate_bigquery
 
 time_periods = []
 dataframes = []
 
 
-def fetch_all_data():
+def fetch_data_from_bigquery():
+    bigquery_client = authenticate_bigquery()
+
     generate_time_periods()
     with ThreadPoolExecutor() as executor:
-        futures = [executor.submit(get_dataframe_from_table, time_period) for time_period in time_periods]
+        futures = [
+            executor.submit(get_dataframe_from_table, bigquery_client, time_period) for time_period in time_periods
+        ]
         for future in concurrent.futures.as_completed(futures):
             dataframes.append(future.result())
 
@@ -57,14 +37,16 @@ def generate_time_periods(start='20170101', end='20170331'):
         current_date += timedelta(days=1)
 
 
-def get_dataframe_from_table(time_period):
-    query = query_template.format(time_period)
-    return bigquery_client.query(query).to_dataframe()
+def get_dataframe_from_table(bigquery_client, time_period):
+    with open('query.sql', 'r') as file:
+        query = file.read()
+    query_with_date = query.format(time_period)
+    return bigquery_client.query(query_with_date).to_dataframe()
 
 
-def convert_col_type_to_dict(cols):
+def convert_col_type_to_dict(cols, df):
     for col in cols:
-        combined_df[col] = combined_df[col].apply(ast.literal_eval)
+        df[col] = df[col].apply(ast.literal_eval)
 
 
 def write_to_google_sheet():
@@ -78,11 +60,12 @@ def write_to_google_sheet():
         print(f'spent time for writing data: {end_time - start_time}')
 
 
-def get_df_list():
-    transactions_by_date_df = transactions_by_date(combined_df)
-    traffic_by_date_df = traffic_by_date(combined_df)
-    transactions_by_browser_df = transactions_by_browser(combined_df)
-    transactions_by_traffic_source_df = transactions_by_traffic_source(combined_df)
+def get_df_list(df):
+    transactions_by_date_df = get_transactions_by_date(df)
+    traffic_by_date_df = get_traffic_by_date(df)
+    transactions_by_browser_df = get_transactions_by_browser(df)
+    transactions_by_traffic_source_df = get_transactions_by_traffic_source(df)
+
     return [transactions_by_date_df, traffic_by_date_df, transactions_by_browser_df, transactions_by_traffic_source_df]
 
 
@@ -92,7 +75,7 @@ def extract_series_from_dict_param(df, dict_param, param):
     return transactions_values
 
 
-def transactions_by_date(data):
+def get_transactions_by_date(data):
     df = data.copy()
     transactions_values = extract_series_from_dict_param(df, 'totals', 'transactions')
     df['total_transactions'] = transactions_values
@@ -102,7 +85,7 @@ def transactions_by_date(data):
     return result
 
 
-def traffic_by_date(data):
+def get_traffic_by_date(data):
     """
     Determines how much traffic a website has received over a certain period of time
     :param data: dataframe with general data
@@ -117,7 +100,7 @@ def traffic_by_date(data):
     return result
 
 
-def transactions_by_browser(data):
+def get_transactions_by_browser(data):
     """
     Determines which browsers on specific dates had the most transactions
     :param data: a dataframe with general data
@@ -137,7 +120,7 @@ def transactions_by_browser(data):
     return result
 
 
-def transactions_by_traffic_source(data):
+def get_transactions_by_traffic_source(data):
     """
     Determines traffic sources in terms of transactions for January - March 2017
     :param data: a dataframe with general data
@@ -167,15 +150,14 @@ def update_sheet(worksheet, dataframe):
     )
 
 
-def get_worksheet(worksheet_index, sheet_title=SHEET_NAME):
-    client = gspread.authorize(credentials)
-    sheet = client.open(sheet_title)
+def get_worksheet(worksheet_index):
+    sheet = authenticate_google_sheets()
     worksheet = sheet.get_worksheet(worksheet_index)
     return worksheet
 
 
-if __name__ == "__main__":
-    combined_df = fetch_all_data()
+def main():
+    combined_df = fetch_data_from_bigquery()
     combined_df.rename(columns={'Unnamed: 0': 'index'}, inplace=True)
     combined_df['date'] = combined_df['date'].apply(lambda x: datetime.strptime(str(x), '%Y%m%d').strftime('%Y-%m-%d'))
 
@@ -183,3 +165,7 @@ if __name__ == "__main__":
     convert_col_type_to_dict(dict_cols)
 
     write_to_google_sheet()
+
+
+if __name__ == "__main__":
+    main()
