@@ -20,3 +20,4 @@ Google sheet with the resulting dataframes: https://docs.google.com/spreadsheets
 - main.py: The main Python script that orchestrates the data collection, aggregation, and writing process.
 - config.py: Configuration file containing project and dataset details.
 - query.sql: SQL query file for fetching data from BigQuery.
+- auth.py: Contains authentication functions for accessing Google services.
